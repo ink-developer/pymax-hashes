@@ -28,6 +28,7 @@ WORKDIR /app
 
 COPY --from=builder /out/pymax-hashes ./pymax-hashes
 COPY --chown=app:app data ./data
+COPY --chown=app:app frontend ./frontend
 RUN touch .env
 
 USER app

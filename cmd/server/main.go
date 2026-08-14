@@ -21,6 +21,7 @@ func main() {
 
 	http.HandleFunc("GET /versions.json", server.GetVersions)
 	http.HandleFunc("PUT /versions/{version}", server.AddVersion)
+	http.HandleFunc("/", server.NotFound)
 
 	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 
