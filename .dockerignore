@@ -1,0 +1,8 @@
+.git
+.agents
+.codex
+.env
+Dockerfile*
+compose*.yaml
+compose*.yml
+README*
