@@ -7,25 +7,129 @@ import (
 	"net/http"
 	"os"
 	"pymax-hashes/internal/storage"
+	"slices"
+	"strconv"
+	"strings"
 )
 
-func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
-	versions, err := s.storage.GetVersions()
+func versionParts(v string) ([3]int, error) {
+	parts := strings.Split(v, ".")
 
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `{"ok": false}`)
-		return
+	var out [3]int
+
+	if len(parts) != 3 {
+		return out, fmt.Errorf("invalid version %q", v)
 	}
 
-	jsonData, err := json.MarshalIndent(versions, "", "  ")
+	for i := 0; i < 3; i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return out, fmt.Errorf("invalid version %q: %w", v, err)
+		}
+
+		out[i] = n
+	}
+
+	return out, nil
+}
+
+func compareVersions(a, b string) (int, error) {
+	av, err := versionParts(a)
+	if err != nil {
+		return 0, err
+	}
+
+	bv, err := versionParts(b)
+	if err != nil {
+		return 0, err
+	}
+
+	for i := 0; i < 3; i++ {
+		if av[i] < bv[i] {
+			return -1, nil
+		}
+		if av[i] > bv[i] {
+			return 1, nil
+		}
+	}
+
+	return 0, nil
+}
+
+func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	versions, err := s.storage.GetVersions()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, `{"ok": false}`)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	keys := make([]string, 0, len(versions))
+	for k := range versions {
+		keys = append(keys, k)
+	}
+
+	var sortErr error
+
+	slices.SortFunc(keys, func(a, b string) int {
+		cmp, err := compareVersions(a, b)
+		if err != nil {
+			sortErr = err
+			return 0
+		}
+
+		return cmp
+	})
+
+	if sortErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `{"ok": false, "error": %q}`, sortErr.Error())
+		return
+	}
+
+	since := r.URL.Query().Get("since")
+
+	if since != "" {
+		if _, err := versionParts(since); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, `{"ok": false, "error": %q}`, err.Error())
+			return
+		}
+
+		index := len(keys)
+
+		for i, key := range keys {
+			cmp, err := compareVersions(key, since)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprintf(w, `{"ok": false, "error": %q}`, err.Error())
+				return
+			}
+
+			if cmp >= 0 {
+				index = i
+				break
+			}
+		}
+
+		keys = keys[index:]
+	}
+
+	outVersions := make(storage.Versions, len(keys))
+
+	for _, k := range keys {
+		outVersions[k] = versions[k]
+	}
+
+	jsonData, err := json.MarshalIndent(outVersions, "", "  ")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"ok": false}`)
+		return
+	}
+
 	w.Header().Set("Cache-Control", "public, max-age=600")
 	w.WriteHeader(http.StatusOK)
 	w.Write(jsonData)
