@@ -20,6 +20,7 @@ func main() {
 	server := httpapi.New(storage, config)
 
 	http.HandleFunc("GET /versions.json", server.GetVersions)
+	http.HandleFunc("GET /versions/latest", server.GetLatest)
 	http.HandleFunc("PUT /versions/{version}", server.AddVersion)
 	http.HandleFunc("/", server.NotFound)
 

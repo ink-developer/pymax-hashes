@@ -56,16 +56,29 @@ func compareVersions(a, b string) (int, error) {
 	return 0, nil
 }
 
-func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func sendError(w http.ResponseWriter, status int, err string) {
+	data := struct {
+		Error string `json:"error"`
+	}{
+		Error: err,
+	}
 
-	versions, err := s.storage.GetVersions()
+	sendJson(w, data, status)
+}
+
+func sendJson(w http.ResponseWriter, data any, status int) {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"ok": false}`)
+		sendError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(jsonData)
+}
+
+func getSortedKeys(versions storage.Versions) ([]string, error) {
 	keys := make([]string, 0, len(versions))
 	for k := range versions {
 		keys = append(keys, k)
@@ -83,9 +96,52 @@ func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
 		return cmp
 	})
 
+	return keys, sortErr
+}
+
+func (s *Router) GetLatest(w http.ResponseWriter, r *http.Request) {
+	versions, err := s.storage.GetVersions()
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	keys, sortErr := getSortedKeys(versions)
+
 	if sortErr != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `{"ok": false, "error": %q}`, sortErr.Error())
+		sendError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if len(keys) == 0 {
+		sendError(w, http.StatusNotFound, "no versions")
+		return
+	}
+
+	key := keys[len(keys)-1]
+	data := struct {
+		Version string              `json:"version"`
+		Data    storage.VersionData `json:"data"`
+	}{
+		Version: key,
+		Data:    versions[key],
+	}
+
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", s.config.LatestCacheTime))
+	sendJson(w, data, http.StatusOK)
+}
+
+func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
+	versions, err := s.storage.GetVersions()
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	keys, sortErr := getSortedKeys(versions)
+
+	if sortErr != nil {
+		sendError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -93,8 +149,7 @@ func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
 
 	if since != "" {
 		if _, err := versionParts(since); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `{"ok": false, "error": %q}`, err.Error())
+			sendError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -103,8 +158,7 @@ func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
 		for i, key := range keys {
 			cmp, err := compareVersions(key, since)
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprintf(w, `{"ok": false, "error": %q}`, err.Error())
+				sendError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 
@@ -123,32 +177,22 @@ func (s *Router) GetVersions(w http.ResponseWriter, r *http.Request) {
 		outVersions[k] = versions[k]
 	}
 
-	jsonData, err := json.MarshalIndent(outVersions, "", "  ")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"ok": false}`)
-		return
-	}
-
-	w.Header().Set("Cache-Control", "public, max-age=600")
-	w.WriteHeader(http.StatusOK)
-	w.Write(jsonData)
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", s.config.GlobalCacheTime))
+	sendJson(w, outVersions, http.StatusOK)
 }
 
 func (s *Router) AddVersion(w http.ResponseWriter, r *http.Request) {
 	authKey := r.Header.Get("Authorization")
 
 	if authKey != s.config.AuthKey {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(w, `{"ok":false}`)
+		sendError(w, http.StatusUnauthorized, "invalid auth")
 		return
 	}
 
 	var incoming storage.VersionData
 
 	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `{"ok":false}`)
+		sendError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 
@@ -156,8 +200,7 @@ func (s *Router) AddVersion(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("failed to save versions: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `{"ok": false}`)
+		sendError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -167,14 +210,11 @@ func (s *Router) AddVersion(w http.ResponseWriter, r *http.Request) {
 	err = s.storage.SaveVersions(versions)
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `{"ok": false}`)
+		sendError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"ok": true}`)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Router) NotFound(w http.ResponseWriter, r *http.Request) {

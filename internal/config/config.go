@@ -8,10 +8,12 @@ import (
 )
 
 type Config struct {
-	DataPath string `env:"DATA_PATH" envDefault:"data/apk_fingerprints.json"`
-	Host     string `env:"HOST" envDefault:"0.0.0.0"`
-	Port     int    `env:"PORT" envDefault:"8080"`
-	AuthKey  string `env:"AUTH_KEY,required"`
+	DataPath        string `env:"DATA_PATH" envDefault:"data/apk_fingerprints.json"`
+	Host            string `env:"HOST" envDefault:"0.0.0.0"`
+	Port            int    `env:"PORT" envDefault:"8080"`
+	AuthKey         string `env:"AUTH_KEY,required"`
+	GlobalCacheTime int    `env:"GLOBAL_CACHE_TIME" envDefault:"600"`
+	LatestCacheTime int    `env:"LATEST_CACHE_TIME" envDefault:"300"`
 }
 
 func LoadConfig() (*Config, error) {
