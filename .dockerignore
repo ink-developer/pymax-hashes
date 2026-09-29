@@ -6,3 +6,6 @@ Dockerfile*
 compose*.yaml
 compose*.yml
 README*
+node_modules
+docs
+package*.json

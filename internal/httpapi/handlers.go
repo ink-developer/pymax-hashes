@@ -197,9 +197,8 @@ func (s *Router) AddVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	versions, err := s.storage.GetVersions()
-
 	if err != nil {
-		log.Printf("failed to save versions: %v", err)
+		log.Printf("failed to get versions: %v", err)
 		sendError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -207,9 +206,8 @@ func (s *Router) AddVersion(w http.ResponseWriter, r *http.Request) {
 	versionName := r.PathValue("version")
 	versions[versionName] = incoming
 
-	err = s.storage.SaveVersions(versions)
-
-	if err != nil {
+	if err := s.storage.SaveVersions(versions); err != nil {
+		log.Printf("failed to save versions: %v", err)
 		sendError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

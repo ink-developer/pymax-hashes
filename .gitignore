@@ -28,6 +28,11 @@ go.work.sum
 .env
 
 data/*
+
+# Documentation
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 # Editor/IDE
 # .idea/
 # .vscode/
